@@ -154,11 +154,16 @@ def main():
         print(json.dumps({"error": "No projects directory found", "sessions": []}))
         sys.exit(0)
 
-    # Parse arguments
+    # Parse arguments: mode (empty|unnamed) or session ID
+    mode = "empty"  # default: unnamed sessions ≤ 4KB
     target_id = None
     args = sys.argv[1:]
-    if args and not args[0].startswith("--"):
-        target_id = args[0]
+    if args:
+        if args[0] in ("empty", "unnamed"):
+            mode = args[0]
+        elif not args[0].startswith("--"):
+            mode = "targeted"
+            target_id = args[0]
 
     # Detect current session: most recently modified JSONL in the current project dir
     current_session_id = None
@@ -220,13 +225,14 @@ def main():
             if info["session_id"] == current_session_id:
                 continue
 
-            if target_id:
-                # Match by full ID or prefix
+            if mode == "targeted":
                 if info["session_id"].startswith(target_id):
                     sessions.append(info)
-            else:
-                # No target: list all unnamed sessions
+            elif mode == "unnamed":
                 if not info["is_named"]:
+                    sessions.append(info)
+            elif mode == "empty":
+                if not info["is_named"] and info["total_size"] <= 4096:
                     sessions.append(info)
 
     # Sort by last_ts (oldest first — clean oldest first)
@@ -234,7 +240,7 @@ def main():
 
     total_size = sum(s["total_size"] for s in sessions)
     result = {
-        "mode": "targeted" if target_id else "unnamed",
+        "mode": mode,
         "target_id": target_id,
         "count": len(sessions),
         "total_size": total_size,

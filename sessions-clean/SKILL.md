@@ -1,6 +1,6 @@
 ---
 name: sessions-clean
-description: Clean up Claude Code sessions. Without arguments, lists all unnamed sessions for bulk cleanup. With a SESSION_ID argument (full or prefix), targets that specific session. Always confirms before deleting.
+description: Clean up Claude Code sessions. Supports two modes: `empty` (default) removes unnamed sessions ≤ 4KB, `unnamed` removes all unnamed sessions. Always confirms before deleting.
 ---
 
 # Clean Sessions
@@ -12,16 +12,18 @@ description: Clean up Claude Code sessions. Without arguments, lists all unnamed
 Parse the user's argument (if any) and run:
 
 ```bash
-/usr/local/bin/python3.13 ~/.claude/skills/sessions-clean/scripts/clean_sessions.py [SESSION_ID]
+/usr/local/bin/python3.13 ~/.claude/skills/sessions-clean/scripts/clean_sessions.py [MODE]
 ```
 
-- No argument → script returns all **unnamed** sessions (candidates for cleanup)
-- `SESSION_ID` argument → script returns matching session(s) by ID prefix
+- No argument or `empty` → script returns unnamed sessions with size ≤ 4KB (empty/tiny sessions)
+- `unnamed` → script returns **all** unnamed sessions regardless of size
+- `SESSION_ID` → script returns matching session(s) by ID prefix
 
 ### Step 2: Present the results
 
 Read the JSON output. Show the user a summary:
 
+- The mode used (`empty` or `unnamed`)
 - How many sessions will be deleted
 - Total size to be freed
 - List each session: name/slug, session ID (first 8 chars), last active date, size
