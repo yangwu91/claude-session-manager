@@ -15,11 +15,18 @@ List all Claude Code sessions with name, ID, project, last active time, size, an
 
 ### sessions-clean
 
-Clean up Claude Code sessions. Without arguments, lists all unnamed sessions for bulk cleanup. With a `SESSION_ID` argument, targets that specific session. Always confirms before deleting.
+Clean up Claude Code sessions. Supports two modes:
+
+- **`empty`** (default) — removes unnamed sessions ≤ 4KB (empty/tiny sessions)
+- **`unnamed`** — removes all unnamed sessions regardless of size
+
+Always confirms before deleting.
 
 ```
-/sessions-clean
-/sessions-clean <SESSION_ID>
+/sessions-clean              # default: empty mode
+/sessions-clean empty        # same as above
+/sessions-clean unnamed      # all unnamed sessions
+/sessions-clean <SESSION_ID> # target a specific session by ID prefix
 ```
 
 ## Installation
