@@ -148,105 +148,169 @@ def parse_session_basic(jsonl_path: Path) -> dict | None:
     }
 
 
+def find_matches(target: str, all_sessions: list[dict]) -> tuple[str, list[dict]]:
+    """Find sessions matching a target string by ID prefix or name.
+    Returns (match_type, matched_sessions)."""
+    # 1. ID prefix match
+    matched = [s for s in all_sessions if s["session_id"].startswith(target)]
+    if matched:
+        return ("id_prefix", matched)
+
+    # 2. Exact name match (case-insensitive)
+    matched = [s for s in all_sessions if s["name"].lower() == target.lower()]
+    if matched:
+        return ("name_exact", matched)
+
+    # 3. Name substring match (case-insensitive)
+    matched = [s for s in all_sessions if target.lower() in s["name"].lower()]
+    if matched:
+        return ("name_substring", matched)
+
+    return ("no_match", [])
+
+
+def detect_current_session(projects_dir: Path) -> str | None:
+    """Detect the current session ID based on cwd and most recent mtime."""
+    try:
+        current_cwd = str(Path(os.getcwd()).resolve())
+    except Exception:
+        return None
+
+    if not current_cwd:
+        return None
+
+    best_mtime = 0.0
+    current_session_id = None
+    for project_dir in sorted(projects_dir.iterdir()):
+        if not project_dir.is_dir():
+            continue
+        for jsonl_file in sorted(project_dir.glob("*.jsonl")):
+            if jsonl_file.parent != project_dir:
+                continue
+            mtime = jsonl_file.stat().st_mtime
+            try:
+                with open(jsonl_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        cwd = entry.get("cwd")
+                        if cwd:
+                            try:
+                                resolved = str(Path(cwd).resolve())
+                            except Exception:
+                                resolved = cwd
+                            if resolved == current_cwd and mtime > best_mtime:
+                                best_mtime = mtime
+                                current_session_id = jsonl_file.stem
+                            break
+            except Exception:
+                pass
+
+    return current_session_id
+
+
+def collect_all_sessions(projects_dir: Path, current_session_id: str | None) -> list[dict]:
+    """Parse all sessions, excluding the current one."""
+    sessions = []
+    for project_dir in sorted(projects_dir.iterdir()):
+        if not project_dir.is_dir():
+            continue
+        for jsonl_file in sorted(project_dir.glob("*.jsonl")):
+            if jsonl_file.parent != project_dir:
+                continue
+            info = parse_session_basic(jsonl_file)
+            if not info:
+                continue
+            if info["session_id"] == current_session_id:
+                continue
+            sessions.append(info)
+    return sessions
+
+
 def main():
     projects_dir = Path.home() / ".claude" / "projects"
     if not projects_dir.is_dir():
         print(json.dumps({"error": "No projects directory found", "sessions": []}))
         sys.exit(0)
 
-    # Parse arguments: mode (empty|unnamed) or session ID
-    mode = "empty"  # default: unnamed sessions ≤ 4KB
-    target_id = None
-    args = sys.argv[1:]
-    if args:
-        if args[0] in ("empty", "unnamed"):
-            mode = args[0]
-        elif not args[0].startswith("--"):
-            mode = "targeted"
-            target_id = args[0]
+    # Parse arguments
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
 
-    # Detect current session: most recently modified JSONL in the current project dir
-    current_session_id = None
-    try:
-        current_cwd = str(Path(os.getcwd()).resolve())
-    except Exception:
-        current_cwd = ""
+    if not args or (len(args) == 1 and args[0] in ("empty", "unnamed")):
+        mode = args[0] if args else "empty"
+    else:
+        mode = "targeted"
 
-    if current_cwd:
-        # Find all project dirs that match current cwd by scanning JSONL cwd fields
-        # Simpler approach: find the most recently modified JSONL in matching project dirs
-        best_mtime = 0.0
-        for project_dir in sorted(projects_dir.iterdir()):
-            if not project_dir.is_dir():
-                continue
-            for jsonl_file in sorted(project_dir.glob("*.jsonl")):
-                if jsonl_file.parent != project_dir:
-                    continue
-                mtime = jsonl_file.stat().st_mtime
-                # Quick check: read first cwd from the file
-                try:
-                    with open(jsonl_file, "r", encoding="utf-8") as f:
-                        for line in f:
-                            line = line.strip()
-                            if not line:
-                                continue
-                            try:
-                                entry = json.loads(line)
-                            except json.JSONDecodeError:
-                                continue
-                            cwd = entry.get("cwd")
-                            if cwd:
-                                try:
-                                    resolved = str(Path(cwd).resolve())
-                                except Exception:
-                                    resolved = cwd
-                                if resolved == current_cwd and mtime > best_mtime:
-                                    best_mtime = mtime
-                                    current_session_id = jsonl_file.stem
-                                break
-                except Exception:
-                    pass
+    current_session_id = detect_current_session(projects_dir)
+    all_sessions = collect_all_sessions(projects_dir, current_session_id)
 
-    sessions = []
+    if mode == "targeted":
+        targets = args
+        target_results = []
+        seen_ids = set()
+        resolved_sessions = []
 
-    for project_dir in sorted(projects_dir.iterdir()):
-        if not project_dir.is_dir():
-            continue
+        for target in targets:
+            match_type, matched = find_matches(target, all_sessions)
+            target_results.append({
+                "query": target,
+                "match_type": match_type,
+                "match_count": len(matched),
+                "sessions": [
+                    {
+                        "session_id": s["session_id"],
+                        "name": s["name"],
+                        "is_named": s["is_named"],
+                        "last_ts": s["last_ts"],
+                        "total_size": s["total_size"],
+                        "total_size_human": s["total_size_human"],
+                    }
+                    for s in matched
+                ],
+            })
+            for s in matched:
+                if s["session_id"] not in seen_ids:
+                    seen_ids.add(s["session_id"])
+                    resolved_sessions.append(s)
 
-        for jsonl_file in sorted(project_dir.glob("*.jsonl")):
-            if jsonl_file.parent != project_dir:
-                continue
+        # Sort resolved sessions by last_ts (oldest first)
+        resolved_sessions.sort(key=lambda s: s["last_ts"] or "")
 
-            info = parse_session_basic(jsonl_file)
-            if not info:
-                continue
-
-            # Skip current session
-            if info["session_id"] == current_session_id:
-                continue
-
-            if mode == "targeted":
-                if info["session_id"].startswith(target_id):
-                    sessions.append(info)
-            elif mode == "unnamed":
-                if not info["is_named"]:
-                    sessions.append(info)
+        total_size = sum(s["total_size"] for s in resolved_sessions)
+        result = {
+            "mode": "targeted",
+            "target_results": target_results,
+            "count": len(resolved_sessions),
+            "total_size": total_size,
+            "total_size_human": human_size(total_size),
+            "sessions": resolved_sessions,
+        }
+    else:
+        sessions = []
+        for s in all_sessions:
+            if mode == "unnamed":
+                if not s["is_named"]:
+                    sessions.append(s)
             elif mode == "empty":
-                if not info["is_named"] and info["total_size"] <= 4096:
-                    sessions.append(info)
+                if not s["is_named"] and s["total_size"] <= 10240:
+                    sessions.append(s)
 
-    # Sort by last_ts (oldest first — clean oldest first)
-    sessions.sort(key=lambda s: s["last_ts"] or "")
+        # Sort by last_ts (oldest first)
+        sessions.sort(key=lambda s: s["last_ts"] or "")
 
-    total_size = sum(s["total_size"] for s in sessions)
-    result = {
-        "mode": mode,
-        "target_id": target_id,
-        "count": len(sessions),
-        "total_size": total_size,
-        "total_size_human": human_size(total_size),
-        "sessions": sessions,
-    }
+        total_size = sum(s["total_size"] for s in sessions)
+        result = {
+            "mode": mode,
+            "count": len(sessions),
+            "total_size": total_size,
+            "total_size_human": human_size(total_size),
+            "sessions": sessions,
+        }
 
     print(json.dumps(result, indent=2, ensure_ascii=False))
 

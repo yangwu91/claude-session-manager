@@ -15,18 +15,26 @@ List all Claude Code sessions with name, ID, project, last active time, size, an
 
 ### sessions-clean
 
-Clean up Claude Code sessions. Supports two modes:
+Clean up Claude Code sessions. Supports batch mode and targeted deletion:
 
-- **`empty`** (default) — removes unnamed sessions ≤ 4KB (empty/tiny sessions)
+- **`empty`** (default) — removes unnamed sessions ≤ 10KB (empty/tiny sessions)
 - **`unnamed`** — removes all unnamed sessions regardless of size
+- **One or more session IDs or names** — delete specific sessions by ID prefix or name
 
-Always confirms before deleting.
+Matching priority for targeted deletion:
+1. **ID prefix** — e.g., `0fa7` matches `0fa78bf1-...`
+2. **Exact name** (case-insensitive) — e.g., `my-project` matches a session named "my-project"
+3. **Name substring** (case-insensitive) — e.g., `dev` matches "dev-frontend" and "dev-backend"
+
+If a query matches multiple sessions, you'll be asked to pick which ones to delete. Always confirms before deleting.
 
 ```
-/sessions-clean              # default: empty mode
-/sessions-clean empty        # same as above
-/sessions-clean unnamed      # all unnamed sessions
-/sessions-clean <SESSION_ID> # target a specific session by ID prefix
+/sessions-clean                        # default: empty mode
+/sessions-clean empty                  # same as above
+/sessions-clean unnamed                # all unnamed sessions
+/sessions-clean my-project             # delete session named "my-project"
+/sessions-clean 0fa7                   # delete session with ID starting with 0fa7
+/sessions-clean my-project dev-task a3b # delete multiple sessions at once
 ```
 
 ## Installation
